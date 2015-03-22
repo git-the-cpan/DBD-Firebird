@@ -10,6 +10,7 @@ require 5.008001;
 
 package DBD::Firebird;
 use strict;
+use warnings;
 use Carp;
 
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $AUTOLOAD);
@@ -18,7 +19,7 @@ require Exporter;
 require DynaLoader;
 
 @ISA = qw(Exporter DynaLoader);
-$VERSION = '1.17';
+$VERSION = '1.19';
 
 bootstrap DBD::Firebird $VERSION;
 
@@ -149,8 +150,11 @@ sub connect
                                 'ib_charset', 'ib_dialect', 'ib_cache', 'ib_lc_time']);
     $private_attr_hash->{database} ||= $ENV{ISC_DATABASE}; #"employee.fdb"
 
-    # second attr args will be retrieved using DBIc_IMP_DATA
-    my $dbh = DBI::_new_dbh($drh, {}, $private_attr_hash);
+    my ($dbh_name) = ($dsn =~ /(db=[^;]+)/);
+    $dbh_name ||= "db=$private_attr_hash->{database}";
+    my $dbh = DBI::_new_dbh($drh,
+                            { Name => $dbh_name },
+                            $private_attr_hash);
 
     DBD::Firebird::db::_login($dbh, $dsn, $dbuser, $dbpasswd, $attr) 
         or return undef;
@@ -1553,7 +1557,7 @@ DBI(3).
 
 =item Copyright (c) 2011  Alexandr Ciornii <alexchorny@gmail.com>
 
-=item Copyright (c) 2010, 2011  pilcrow <mjp@pilcrow.madison.wi.us>
+=item Copyright (c) 2010, 2011  Mike Pomraning <mjp@pilcrow.madison.wi.us>
 
 =item Copyright (c) 1999-2008  Edwin Pratomo
 

@@ -3,7 +3,7 @@
 
    Copyright (c) 2010, 2011  Popa Marius Adrian <mapopa@gmail.com>
    Copyright (c) 2011, 2012, 2013  Damyan Ivanov <dmn@debian.org>
-   Copyright (c) 2010  pilcrow <mjp@pilcrow.madison.wi.us>
+   Copyright (c) 2010  Mike Pomraning <mjp@pilcrow.madison.wi.us>
    Copyright (c) 1999-2008  Edwin Pratomo
    Portions Copyright (c) 2001-2005  Daniel Ritz
 
@@ -20,6 +20,8 @@
 #endif
 
 DBISTATE_DECLARE;
+
+#define ERRBUFSIZE  255
 
 #define IB_SQLtimeformat(xxh, format, sv)                             \
 do {                                                                  \
@@ -70,14 +72,14 @@ bool is_ascii_string(const U8 *s, STRLEN len) {
 int create_cursor_name(SV *sth, imp_sth_t *imp_sth)
 {
     ISC_STATUS status[ISC_STATUS_LENGTH];
+#define CURSOR_NAME_LEN 22
 
-    Newxz(imp_sth->cursor_name, 22, char);
-    sprintf(imp_sth->cursor_name, "perl%16.16X", (uint32_t)imp_sth->stmt);
+    Newxz(imp_sth->cursor_name, CURSOR_NAME_LEN, char);
+    snprintf(imp_sth->cursor_name, CURSOR_NAME_LEN, "perl%16.16X", (uint32_t)imp_sth->stmt);
     isc_dsql_set_cursor_name(status, &(imp_sth->stmt), imp_sth->cursor_name, 0);
     if (ib_error_check(sth, status))
         return FALSE;
-    else
-        return TRUE;
+    return TRUE;
 }
 
 void maybe_upgrade_to_utf8(imp_dbh_t *imp_dbh, SV *sv) {
@@ -148,45 +150,44 @@ void do_error(SV *h, int rc, char *what)
    Returns NULL if there is no error
  */
 char* ib_error_decode(const ISC_STATUS *status) {
-    if (status[0] == 1 && status[1] > 0)
-    {
-        SV *sv = NULL;
-        long sqlcode;
+    SV *sv = NULL;
+    long sqlcode;
 #if !defined(FB_API_VER) || FB_API_VER < 20
-        ISC_STATUS *pvector = status;
+    ISC_STATUS *pvector = status;
 #else
-        const ISC_STATUS *pvector = status;
+    const ISC_STATUS *pvector = status;
 #endif
 #if defined (INCLUDE_TYPES_PUB_H) 
-        ISC_SCHAR msg[1024];
+    ISC_SCHAR msg[1024];
 #else
-        char msg[1024];
+    char msg[1024];
 #endif
 
-        if ((sqlcode = isc_sqlcode(status)) != 0)
-        {
-            isc_sql_interprete((short) sqlcode, msg, sizeof(msg));
-            sv = sv_2mortal(newSVpv(msg, 0));
-        }
+    if (status[0] != 1 || status[1] <= 0)
+	return NULL;
+
+    if ((sqlcode = isc_sqlcode(status)) != 0)
+    {
+	isc_sql_interprete((short) sqlcode, msg, sizeof(msg));
+	sv = sv_2mortal(newSVpv(msg, 0));
+    }
 
 #if !defined(FB_API_VER) || FB_API_VER < 20
-        while (isc_interprete(msg, &pvector))
+    while (isc_interprete(msg, &pvector))
 #else
-        while (fb_interpret(msg, sizeof(msg), &pvector))
+    while (fb_interpret(msg, sizeof(msg), &pvector))
 #endif
-        {
-            if ( sv != NULL ) {
-                sv_catpvn(sv, "\n-", 2);
-                sv_catpv(sv, msg);
-            }
-            else sv = sv_2mortal(newSVpv(msg,0));
-        }
-
-        sv_catpvn(sv, "\0", 1);  // NUL-terminate
-
-        return SvPV_nolen(sv);
+    {
+	if ( sv != NULL ) {
+	    sv_catpvn(sv, "\n-", 2);
+	    sv_catpv(sv, msg);
+	}
+	else sv = sv_2mortal(newSVpv(msg,0));
     }
-    else return NULL;
+
+    sv_catpvn(sv, "\0", 1);  // NUL-terminate
+
+    return SvPV_nolen(sv);
 }
 
 /* higher level error handling, check and decode status */
@@ -194,12 +195,11 @@ int ib_error_check(SV *h, ISC_STATUS *status)
 {
     char *msg = ib_error_decode(status);
 
-    if (msg != NULL)
-    {
-        do_error(h, isc_sqlcode(status), msg);
-        return FAILURE;
-    }
-    else return SUCCESS;
+    if (msg == NULL)
+	return SUCCESS;
+
+    do_error(h, isc_sqlcode(status), msg);
+    return FAILURE;
 }
 
 
@@ -1055,6 +1055,9 @@ int dbd_st_execute(SV *sth, imp_sth_t *imp_sth)
 
     DBI_TRACE_imp_xxh(imp_sth, 2, (DBIc_LOGPIO(imp_sth), "dbd_st_execute\n"));
 
+    if (DBIc_ACTIVE(imp_sth))
+	dbd_st_finish_internal(sth, imp_sth, TRUE);
+
     /* if not already done: start new transaction */
     if (!imp_dbh->tr)
         if (!ib_start_transaction(sth, imp_dbh))
@@ -1492,7 +1495,7 @@ AV *dbd_st_fetch(SV *sth, imp_sth_t *imp_sth)
                         switch (dtype)
                         {
                             case SQL_TIMESTAMP:
-                                sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d.%04ld",
+                                snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%04ld",
                                         times.tm_year + 1900,
                                         times.tm_mon  + 1,
                                         times.tm_mday,
@@ -1502,14 +1505,14 @@ AV *dbd_st_fetch(SV *sth, imp_sth_t *imp_sth)
                                         fpsec);
                                 break;
                             case SQL_TYPE_DATE:
-                                sprintf(buf, "%04d-%02d-%02d",
+                                snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
                                         times.tm_year + 1900,
                                         times.tm_mon  + 1,
                                         times.tm_mday);
                                 break;
 
                             case SQL_TYPE_TIME:
-                                sprintf(buf, "%02d:%02d:%02d.%04ld",
+                                snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%04ld",
                                         times.tm_hour,
                                         times.tm_min,
                                         times.tm_sec,
@@ -1760,7 +1763,7 @@ AV *dbd_st_fetch(SV *sth, imp_sth_t *imp_sth)
             else
             {
                 char s[20];
-                sprintf(s, "COLUMN%d", i);
+                snprintf(s, sizeof(s), "COLUMN%d", i);
                 sv_setpvn(sv, s, strlen(s));
             }
 */
@@ -2013,7 +2016,7 @@ SV* dbd_st_FETCH_attrib(SV *sth, imp_sth_t *imp_sth, SV *keysv)
             else
             {
                 char s[20];
-                sprintf(s, "COLUMN%d", i);
+                snprintf(s, sizeof(s), "COLUMN%d", i);
                 av_store(av, i, newSVpvn(s, strlen(s)));
             }
         }
@@ -2237,8 +2240,8 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
             /*
             * User passed an undef to a field that is not nullable.
             */
-            char err[80];
-            sprintf(err, "You have not provided a value for non-nullable parameter #%d.", i);
+            char err[ERRBUFSIZE];
+            snprintf(err, sizeof(err), "You have not provided a value for non-nullable parameter #%d.", i);
             do_error(sth, 1, err);
             retval = FALSE;
             return retval;
@@ -2278,8 +2281,8 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
             string = SvPV(value, len);
 
             if (len > ivar->sqllen) {
-                char err[80];
-                sprintf(err, "String truncation (SQL_VARYING): attempted to bind %lu octets to column sized %lu",
+                char err[ERRBUFSIZE];
+                snprintf(err, sizeof(err), "String truncation (SQL_VARYING): attempted to bind %lu octets to column sized %lu",
                         (long unsigned)len, (long unsigned)(sizeof(char) * (ivar->sqllen)));
                 break;
             }
@@ -2301,8 +2304,8 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
             string = SvPV(value, len);
 
             if (len > ivar->sqllen) {
-                char err[80];
-                sprintf(err, "String truncation (SQL_TEXT): attempted to bind %lu octets to column sized %lu",
+                char err[ERRBUFSIZE];
+                snprintf(err, sizeof(err), "String truncation (SQL_TEXT): attempted to bind %lu octets to column sized %lu",
                         (long unsigned)len, (long unsigned)(sizeof(char) * (ivar->sqllen)));
                 break;
             }
@@ -2348,7 +2351,7 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
                 char *tmp;
                 char *neg;
 
-                sprintf(format, "%%ld.%%%dld%%1ld", -ivar->sqlscale);
+                snprintf(format, sizeof(format), "%%ld.%%%dld%%1ld", -ivar->sqlscale);
 
                 /* negative -0.x hack */
                 neg = strchr(svalue, '-');
@@ -2361,7 +2364,7 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
                 if (!sscanf(svalue, format, &p, &q, &r))
                 {
                     /* here we handle values such as .78 passed as string */
-                    sprintf(format, ".%%%dld%%1ld", -ivar->sqlscale);
+                    snprintf(format, sizeof(format), ".%%%dld%%1ld", -ivar->sqlscale);
                     if (!sscanf(svalue, format, &q, &r) && DBIc_WARN(imp_sth))
                         warn("problem parsing SQL_LONG type");
                 }
@@ -2387,11 +2390,11 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
             {
                 /* numeric(?,0): scan for one decimal and do rounding*/
 
-                sprintf(format, "%%ld.%%1ld");
+                snprintf(format, sizeof(format), "%%ld.%%1ld");
 
                 if (!sscanf(svalue, format, &p, &r))
                 {
-                    sprintf(format, ".%%1ld");
+                    snprintf(format, sizeof(format), ".%%1ld");
                     if (!sscanf(svalue, format, &r) && DBIc_WARN(imp_sth))
                         warn("problem parsing SQL_LONG type");
                 }
@@ -2479,7 +2482,7 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
                 char *tmp;
                 char *neg;
 
-                sprintf(format, S_INT64_FULL, -ivar->sqlscale);
+                snprintf(format, sizeof(format), S_INT64_FULL, -ivar->sqlscale);
 
                 /* negative -0.x hack */
                 neg = strchr(svalue, '-');
@@ -2492,7 +2495,7 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
                 if (!sscanf(svalue, format, &p, &q, &r))
                 {
                     /* here we handle values such as .78 passed as string */
-                    sprintf(format, S_INT64_DEC_FULL, -ivar->sqlscale);
+                    snprintf(format, sizeof(format), S_INT64_DEC_FULL, -ivar->sqlscale);
                     if (!sscanf(svalue, format, &q, &r) && DBIc_WARN(imp_sth))
                         warn("problem parsing SQL_INT64 type");
                 }
@@ -2518,11 +2521,11 @@ static int ib_fill_isqlda(SV *sth, imp_sth_t *imp_sth, SV *param, SV *value,
             {
                 /* numeric(?,0): scan for one decimal and do rounding*/
 
-                sprintf(format, S_INT64_NOSCALE);
+                snprintf(format, sizeof(format), S_INT64_NOSCALE);
 
                 if (!sscanf(svalue, format, &p, &r))
                 {
-                    sprintf(format, S_INT64_DEC_NOSCALE);
+                    snprintf(format, sizeof(format), S_INT64_DEC_NOSCALE);
                     if (!sscanf(svalue, format, &r) && DBIc_WARN(imp_sth))
                         warn("problem parsing SQL_INT64 type");
                 }
