@@ -1,8 +1,8 @@
 DBD::Firebird -- DBI driver for Firebird RDBMS server.
 
-   Copyright (c) 2010-2013  Popa Adrian Marius <mapopa@gmail.com>
+   Copyright (c) 2010-2015  Popa Adrian Marius <mapopa@gmail.com>
    Copyright (c) 2011-2013  Stefan Suciu <stefbv70@gmail.com>
-   Copyright (c) 2011-2013  Damyan Ivanov <dmn@debian.org>
+   Copyright (c) 2011-2015  Damyan Ivanov <dmn@debian.org>
    Copyright (c) 2011  Alexandr Ciornii <alexchorny@gmail.com>
    Copyright (c) 2010-2011  Mike Pomraning <mjp@pilcrow.madison.wi.us>
    Copyright (c) 1999-2005  Edwin Pratomo
@@ -24,7 +24,7 @@ REQUIREMENTS:
 
     * Windows
       - Strawberry perl (http://strawberryperl.com/) comes with it's own compiler (mingw) 
-      - or Microsoft Express VC++ 9 (2008) /10 (2010) /11
+      - Visual Studio C++ (http://visualstudio.com)
       - Cygwin
     * Freebsd 
       - Threaded perl is required (You have to re-install perl from ports and you have to select the config
@@ -34,10 +34,9 @@ REQUIREMENTS:
 *BEFORE* BUILDING, TESTING AND INSTALLING this you will need to:
 
   - Build, test and install Perl 5 (at least 5.8.1).
-    It is very important to TEST it and INSTALL it!
 
   - Build, test and install the DBI module (at least DBI 1.41).
-    It is very important to TEST it and INSTALL it!
+  
     On Debian/Ubuntu you can do a simple:
       sudo apt-get install firebird2.5-dev libdbi-perl
     On OpenSUSE:
@@ -71,5 +70,5 @@ TESTING
     ISC_PASSWORD=masterkey make test
 
 INSTALLING:
-    make install               (if the tests look okay)
+    make install
 
